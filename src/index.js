@@ -1,20 +1,19 @@
-import * as THREE from "three/build/three.module"; 
+import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
 import fragment from "./shader/fragment.glsl";
-import vertex from "shader/vertex.glsl";
-
+import vertex from "./shader/vertex.glsl";
 import * as dat from "dat.gui";
 import gsap from "gsap";
-
-import img from "assets/img/space.jpg";
+import img from "./assets/images/03.jpg";
 
 
 export default class Sketch {
-    constructor(selector) {
+    constructor(options) {
         this.scene = new THREE.Scene();
 
-        this.container.options.dom;
+        // this.container = options.dom;
+        this.container = document.getElementById("container");
         this.width = this.container.offsetWidth;
         this.height = this.container.offsetHeight;
         this.renderer = new THREE.WebGLRenderer();
@@ -22,8 +21,8 @@ export default class Sketch {
         this.renderer.setSize(this.width, this.height);
         this.renderer.setClearColor(0xeeeeee, 1);
         this.renderer.physicallyCorrectLights = true;
+        this.renderer.outputEncoding = THREE.sRGBEncoding;
 
-        this.container = document.getElementById("container");
 
         this.container.appendChild(this.renderer.domElement);
 
@@ -35,24 +34,47 @@ export default class Sketch {
         );
 
 
-        // var frustumSize = 10;
-        // var aspect = window.innerWidth / window.innerHeight;
-        // this.camera = new THREE.OrthographicCamera( frustumSize * aspect / - 2, frustumSize * aspect / 2, frustumSize / 2, frustumSize / - 2, -1000, 1000 );
-
-
+        var frustumSize = 1;
+        var aspect = window.innerWidth / window.innerHeight;
+        this.camera = new THREE.OrthographicCamera(frustumSize / - 2, frustumSize / 2, frustumSize / 2, frustumSize / - 2, -1000, 1000);
         this.camera.position.set(0, 0, 2);
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+        // this.paused = false;
         this.time = 0;
-        this.isPlaying = true;
-        this.paused = false;
 
+        this.mouse = {
+            x: 0,
+            y: 0,
+            prevX: 0,
+            prevY: 0,
+            vX: 0,
+            vY: 0
+        };
+
+        this.isPlaying = true;
         this.addObjects();
         this.resize();
-        this.settings();
+        //  this.settings();
         this.render();
         this.setupResize();
-        console.log(1);
+
+        this.mouseEvents();
     }
+
+    mouseEvents() {
+        window.addEventListener('mousemove', (e) => {
+            this.mouse.x = e.clientX / this.width;
+            this.mouse.y = e.clientY / this.height;
+
+            this.mouse.vX = this.mouse.x - this.mouse.prevX;
+            this.mouse.vY = this.mouse.y - this.mouse.prevY;
+
+            this.mouse.prevX = this.mouse.x;
+            this.mouse.prevY = this.mouse.y;
+
+        });
+    }
+
 
     settings() {
         let that = this;
@@ -61,7 +83,6 @@ export default class Sketch {
             progress: 0,
         };
         this.gui = new dat.GUI();
-        this.gui.add(this.settings, "time", 0, 1, 0.01);
     }
 
     setupResize() {
@@ -76,7 +97,8 @@ export default class Sketch {
 
 
         // image cover
-        this.imageAspect = 853 / 1280;
+        // this.imageAspect = 853 / 1280;
+        this.imageAspect = 1 / 1.5;
         let a1; let a2;
         if (this.height / this.width > this.imageAspect) {
             a1 = (this.width / this.height) * this.imageAspect;
@@ -109,21 +131,52 @@ export default class Sketch {
     }
 
     addObjects() {
-        let that = this;
+        // 512
+        this.size = 128;
+        const width = this.size;
+        const height = this.size;
+
+        const size = width * height;
+        // const data = new Uint8Array(4 * size);
+        const data = new Float32Array(3 * size);
+        const color = new THREE.Color(0xffffff);
+        const r = Math.floor(color.r * 255);
+        const g = Math.floor(color.g * 255);
+        const b = Math.floor(color.b * 255);
+
+        for (let i = 0; i < size; i++) {
+            let r = Math.random();
+            const stride = i * 3;
+
+            data[stride] = r;
+            // data[stride + 1] = g;
+            data[stride + 1] = r;
+            // data[stride + 2] = b;
+            data[stride + 2] = r;
+
+        }
+
+        // used the buffer to create a DataTexture
+
+        this.texture = new THREE.DataTexture(data, width, height, THREE.RGBFormat, THREE.FloatType);
+     
+
+    // this.texture.magFilter = this.texture.minFilter = THREE.NearestFilter;
+    //    this.texture.needsUpdate = true;
+
         this.material = new THREE.ShaderMaterial({
             extensions: {
                 derivatives: "#extension GL_OES_standard_derivatives : enable"
             },
             side: THREE.DoubleSide,
             uniforms: {
-                time: { type: "f", value: 0 },
-                resolution: { type: "v4", value: new THREE.Vector4() },
-                uTexture: {
-                    value: new THREE.TextureLoader.load(img)
-                }
+                time: { value: 0 },
+                resolution: { value: new THREE.Vector4() },
+                uTexture: { value: new THREE.TextureLoader().load(img) },
+                uDataTexture: { value: this.texture }
             },
             // wireframe: true,
-            // transparent: true,
+            transparent: true,
             vertexShader: vertex,
             fragmentShader: fragment
         });
@@ -132,6 +185,39 @@ export default class Sketch {
 
         this.plane = new THREE.Mesh(this.geometry, this.material);
         this.scene.add(this.plane);
+    }
+
+
+    updateDataTexture() {
+        let data = this.texture.image.data;
+        for (let i = 0; i < data.length; i++) {
+            data[i] *= 0.95;
+            data[i + 1] *= 0.95;
+        }
+
+        let gridMouseX = this.size * this.mouse.x;
+        let gridMouseY = this.size * (1 - this.mouse.y);
+        let maxDist = this.size / 16;
+
+        for (let i = 0; i < this.size; i++) {
+            for (let j = 0; j < this.size; j++) {
+                let distance = (gridMouseX - i) ** 2 + (gridMouseY - j) ** 2;
+                let matDistSq = maxDist ** 2;
+                if (distance < matDistSq) {
+                    let index = 3 * (i + this.size * j);
+                    let power = Math.sqrt(distance);
+                    if (distance < this.size / 32) power = 1;
+                    data[index] += 10 * this.mouse.vX * power;
+                    data[index + 1] += 10 * this.mouse.vY * power;
+                }
+            }
+        }
+
+        this.mouse.vX *= 0.09;
+        this.mouse.vY *= 0.09;
+
+
+        this.texture.needsUpdate = true;
     }
 
     stop() {
@@ -152,8 +238,9 @@ export default class Sketch {
         this.material.uniforms.time.value = this.time;
         requestAnimationFrame(this.render.bind(this));
         this.renderer.render(this.scene, this.camera);
+        this.updateDataTexture();
     }
 }
-alert(1);
+
 
 new Sketch("container");
